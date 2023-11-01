@@ -1,0 +1,108 @@
+# Import necessary libraries
+import threading
+import math
+import random
+import time
+import socket
+import matplotlib.pyplot as plt
+from queue import Queue
+
+# Initialize sampling rate and data storage
+sps = 10000  # Samples per Second
+time_values = []  # Stores time values
+sine_wave_values = []  # Stores sine wave amplitude values
+
+# Define time window for plotting
+time_window = 10  # Time window duration for the graph in seconds
+
+# Initialize current time and start time
+current_time = 0
+start_time = time.time()
+
+# Define UDP settings
+udp_host = "192.168.1.2"  # Replace with the target IP address
+udp_port = 12345  # Choose an appropriate port number
+
+# Create a queue for storing received data
+data_queue = Queue()
+
+# Define the producer function
+def producer():
+    while True:
+        global current_time, start_time
+
+        # Generate random amplitude and frequency values
+        amplitude = random.randint(1, 10)
+        frequency = random.randint(1, 10)
+
+        # Calculate current time
+        current_time = time.time() - start_time
+
+        # Calculate sine wave value
+        sine_wave_value = amplitude * math.sin(2 * math.pi * frequency * current_time)
+
+        # Send data via UDP socket
+        udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_socket.sendto(str(sine_wave_value).encode(), (udp_host, udp_port))
+        udp_socket.close()
+
+        # Control the sample rate with a sleep
+        time.sleep(1 / sps)
+
+# Define the consumer function
+def consumer():
+    while time_values and time_values[0] < current_time - time_window:
+        # Remove old data that is outside the time window
+        time_values.pop(0)
+        sine_wave_values.pop(0)
+
+    # Plot the sine wave values vs time
+    plt.cla()
+    plt.plot(time_values, sine_wave_values, label='Sine Wave')
+    plt.xlabel('Time')
+    plt.ylabel('Sine Wave Value')
+
+# Define the UDP receiver function
+def udp_receiver():
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_socket.bind(("0.0.0.0", udp_port))
+
+    while True:
+        data, addr = udp_socket.recvfrom(1024)
+
+        # Decode and store received sine wave values
+        sine_wave_value = float(data.decode())
+
+        time_values.append(current_time)
+        sine_wave_values.append(sine_wave_value)
+        data_queue.put(sine_wave_value)
+
+# Define the time print function
+def time_print():
+    while True:
+        formatted_time = f"{int(current_time)} seconds"
+        print(f"Elapsed time: {formatted_time}")
+        time.sleep(1)
+
+# Main program
+if __name__ == "__main__":
+    # Create threads for each function
+    producer_thread = threading.Thread(target=producer)
+    producer_thread.start()
+
+    udp_receiver_thread = threading.Thread(target=udp_receiver)
+    udp_receiver_thread.start()
+
+    time_thread = threading.Thread(target=time_print)
+    time_thread.start()
+
+    # Enable interactive mode for Matplotlib
+    plt.ion()
+
+    # Create a figure and axis for plotting
+    fig, ax = plt.subplots()
+
+    while True:
+        if not data_queue.empty():
+            consumer()  # Call the consumer to update the plot when data is received
+        plt.pause(0.01)  # Update the plot every 10 milliseconds
